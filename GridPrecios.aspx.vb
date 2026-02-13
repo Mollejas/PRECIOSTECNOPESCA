@@ -57,7 +57,6 @@ Public Class GridPrecios
     Public Class ResultGuardar
         Public Property Actualizados As Integer
         Public Property Total As Integer
-        Public Property Respaldo As String
         Public Property Errores As List(Of String)
     End Class
 
@@ -217,41 +216,6 @@ Public Class GridPrecios
     End Function
 
     ' ===========================
-    ' RUTA DE RESPALDOS
-    ' ===========================
-    Private Const BACKUP_FOLDER As String = "Z:\RESPPRECIOS\"
-
-    ' ===========================
-    ' RESPALDAR DBF + CDX (copia rápida)
-    ' ===========================
-    Private Shared Function RespaldarDBF() As String
-        Try
-            If Not System.IO.Directory.Exists(BACKUP_FOLDER) Then
-                System.IO.Directory.CreateDirectory(BACKUP_FOLDER)
-            End If
-
-            Dim timestamp As String = DateTime.Now.ToString("yyyyMMdd_HHmmss")
-            Dim backupPrefix As String = "PRECIOS_" & timestamp
-
-            Dim dbfSrc As String = DBF_FOLDER & DBF_TABLE & ".DBF"
-            Dim cdxSrc As String = DBF_FOLDER & DBF_TABLE & ".CDX"
-
-            ' Copia simple sin compresión = mucho más rápido que ZIP
-            If System.IO.File.Exists(dbfSrc) Then
-                System.IO.File.Copy(dbfSrc, BACKUP_FOLDER & backupPrefix & ".DBF", True)
-            End If
-            If System.IO.File.Exists(cdxSrc) Then
-                System.IO.File.Copy(cdxSrc, BACKUP_FOLDER & backupPrefix & ".CDX", True)
-            End If
-
-            Return backupPrefix & ".DBF"
-
-        Catch ex As Exception
-            Throw New Exception("Error al respaldar: " & ex.Message)
-        End Try
-    End Function
-
-    ' ===========================
     ' Sanitizar texto para incrustar en script FoxPro
     ' ===========================
     Private Shared Function FoxSafe(s As String) As String
@@ -273,13 +237,6 @@ Public Class GridPrecios
             .Total = items.Count,
             .Errores = New List(Of String)
         }
-
-        Try
-            Dim backupCreado As String = RespaldarDBF()
-            res.Respaldo = backupCreado
-        Catch exBackup As Exception
-            Throw New Exception("ABORTADO - No se pudo respaldar: " & exBackup.Message)
-        End Try
 
         ' Validar precios y construir lista limpia
         Dim validos As New List(Of Tuple(Of String, String, Decimal))
