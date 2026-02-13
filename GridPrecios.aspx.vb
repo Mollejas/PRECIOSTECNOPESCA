@@ -217,50 +217,55 @@ Public Class GridPrecios
 
     ' ===========================
     ' GUARDAR PRECIOS (UPDATE directo por registro)
+    ' Usa AddWithValue igual que BuscarPrecio (que sí funciona)
     ' ===========================
     <WebMethod>
     Public Shared Function GuardarPrecios(items As List(Of ItemGuardar)) As ResultGuardar
         Dim res As New ResultGuardar() With {
             .Actualizados = 0,
-            .Total = items.Count,
+            .Total = If(items IsNot Nothing, items.Count, 0),
             .Errores = New List(Of String)
         }
+
+        If items Is Nothing OrElse items.Count = 0 Then
+            res.Errores.Add("No se recibieron items del navegador")
+            Return res
+        End If
 
         Try
             Using conn As New OleDbConnection(ConnStr())
                 conn.Open()
 
-                Dim sql As String = String.Format(
-                    "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
-                    DBF_TABLE)
+                For Each item In items
+                    Dim precio As Decimal = 0
+                    If Not Decimal.TryParse(item.Precio,
+                            System.Globalization.NumberStyles.Any,
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            precio) Then
+                        res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
+                        Continue For
+                    End If
 
-                Using cmd As New OleDbCommand(sql, conn)
-                    cmd.Parameters.Add("@p1", OleDbType.Numeric)
-                    cmd.Parameters.Add("@p2", OleDbType.VarChar, 25)
-                    cmd.Parameters.Add("@p3", OleDbType.VarChar, 3)
+                    Dim sql As String = String.Format(
+                        "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
+                        DBF_TABLE)
 
-                    For Each item In items
-                        Dim precio As Decimal = 0
-                        If Not Decimal.TryParse(item.Precio, precio) Then
-                            res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
-                            Continue For
-                        End If
+                    Using cmd As New OleDbCommand(sql, conn)
+                        cmd.Parameters.AddWithValue("@precio", CDbl(precio))
+                        cmd.Parameters.AddWithValue("@clave", item.Clave.Trim().PadRight(25))
+                        cmd.Parameters.AddWithValue("@lista", item.Lista.Trim().PadRight(3))
 
-                        cmd.Parameters(0).Value = precio
-                        cmd.Parameters(1).Value = item.Clave.Trim().PadRight(25)
-                        cmd.Parameters(2).Value = item.Lista.Trim().PadRight(3)
-
-                        Dim affected = cmd.ExecuteNonQuery()
+                        Dim affected As Integer = cmd.ExecuteNonQuery()
                         If affected > 0 Then
                             res.Actualizados += 1
                         Else
-                            res.Errores.Add(String.Format("No encontrado: {0} / Lista {1}", item.Clave, item.Lista))
+                            res.Errores.Add(String.Format("No encontrado: [{0}] Lista [{1}]", item.Clave.Trim(), item.Lista.Trim()))
                         End If
-                    Next
-                End Using
+                    End Using
+                Next
             End Using
         Catch ex As Exception
-            Throw New Exception("Error al guardar: " & ex.Message)
+            Throw New Exception("Error al guardar: " & ex.Message & " | StackTrace: " & ex.StackTrace)
         End Try
 
         Return res
