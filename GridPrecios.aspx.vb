@@ -7,7 +7,6 @@
 
 Imports System.Web.Services
 Imports System.Data.OleDb
-Imports System.IO.Compression
 
 Public Class GridPrecios
     Inherits System.Web.UI.Page
@@ -223,39 +222,29 @@ Public Class GridPrecios
     Private Const BACKUP_FOLDER As String = "Z:\RESPPRECIOS\"
 
     ' ===========================
-    ' RESPALDAR DBF + CDX en ZIP
-    ' Nombre: PRECIOS_20260211_143025.zip
+    ' RESPALDAR DBF + CDX (copia rápida)
     ' ===========================
     Private Shared Function RespaldarDBF() As String
         Try
-            ' Crear carpeta si no existe
             If Not System.IO.Directory.Exists(BACKUP_FOLDER) Then
                 System.IO.Directory.CreateDirectory(BACKUP_FOLDER)
             End If
 
-            ' Nombre del ZIP con fecha y hora
             Dim timestamp As String = DateTime.Now.ToString("yyyyMMdd_HHmmss")
-            Dim zipName As String = "PRECIOS_" & timestamp & ".zip"
-            Dim zipPath As String = BACKUP_FOLDER & zipName
+            Dim backupPrefix As String = "PRECIOS_" & timestamp
 
-            ' Archivos a respaldar
-            Dim dbfFile As String = DBF_FOLDER & DBF_TABLE & ".DBF"
-            Dim cdxFile As String = DBF_FOLDER & DBF_TABLE & ".CDX"
+            Dim dbfSrc As String = DBF_FOLDER & DBF_TABLE & ".DBF"
+            Dim cdxSrc As String = DBF_FOLDER & DBF_TABLE & ".CDX"
 
-            ' Crear ZIP
-            Using zip As System.IO.Compression.ZipArchive =
-                System.IO.Compression.ZipFile.Open(zipPath, System.IO.Compression.ZipArchiveMode.Create)
+            ' Copia simple sin compresión = mucho más rápido que ZIP
+            If System.IO.File.Exists(dbfSrc) Then
+                System.IO.File.Copy(dbfSrc, BACKUP_FOLDER & backupPrefix & ".DBF", True)
+            End If
+            If System.IO.File.Exists(cdxSrc) Then
+                System.IO.File.Copy(cdxSrc, BACKUP_FOLDER & backupPrefix & ".CDX", True)
+            End If
 
-                If System.IO.File.Exists(dbfFile) Then
-                    zip.CreateEntryFromFile(dbfFile, DBF_TABLE & ".DBF")
-                End If
-
-                If System.IO.File.Exists(cdxFile) Then
-                    zip.CreateEntryFromFile(cdxFile, DBF_TABLE & ".CDX")
-                End If
-            End Using
-
-            Return zipName
+            Return backupPrefix & ".DBF"
 
         Catch ex As Exception
             Throw New Exception("Error al respaldar: " & ex.Message)
@@ -275,12 +264,9 @@ Public Class GridPrecios
         }
 
         Try
-            ' *** RESPALDO ANTES DE MODIFICAR ***
-            Dim zipCreado As String = RespaldarDBF()
-            res.Respaldo = zipCreado
-
+            Dim backupCreado As String = RespaldarDBF()
+            res.Respaldo = backupCreado
         Catch exBackup As Exception
-            ' Si falla el respaldo, NO continuar con la actualización
             Throw New Exception("ABORTADO - No se pudo respaldar: " & exBackup.Message)
         End Try
 
@@ -288,22 +274,29 @@ Public Class GridPrecios
             Using conn As New OleDbConnection(ConnStr())
                 conn.Open()
 
-                For Each item In items
-                    Try
-                        Dim precio As Decimal = 0
-                        If Not Decimal.TryParse(item.Precio, precio) Then
-                            res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
-                            Continue For
-                        End If
+                Dim trans As OleDbTransaction = conn.BeginTransaction()
 
-                        Dim sql As String = String.Format(
-                            "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
-                            DBF_TABLE)
+                Dim sql As String = String.Format(
+                    "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
+                    DBF_TABLE)
 
-                        Using cmd As New OleDbCommand(sql, conn)
-                            cmd.Parameters.Add(New OleDbParameter("@p1", precio))
-                            cmd.Parameters.Add(New OleDbParameter("@p2", item.Clave.Trim().PadRight(25)))
-                            cmd.Parameters.Add(New OleDbParameter("@p3", item.Lista.Trim().PadRight(3)))
+                Using cmd As New OleDbCommand(sql, conn, trans)
+                    cmd.Parameters.Add("@p1", OleDbType.Decimal)
+                    cmd.Parameters.Add("@p2", OleDbType.VarChar, 25)
+                    cmd.Parameters.Add("@p3", OleDbType.VarChar, 3)
+                    cmd.Prepare()
+
+                    For Each item In items
+                        Try
+                            Dim precio As Decimal = 0
+                            If Not Decimal.TryParse(item.Precio, precio) Then
+                                res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
+                                Continue For
+                            End If
+
+                            cmd.Parameters(0).Value = precio
+                            cmd.Parameters(1).Value = item.Clave.Trim().PadRight(25)
+                            cmd.Parameters(2).Value = item.Lista.Trim().PadRight(3)
 
                             Dim affected = cmd.ExecuteNonQuery()
                             If affected > 0 Then
@@ -311,12 +304,14 @@ Public Class GridPrecios
                             Else
                                 res.Errores.Add(String.Format("No encontrado: {0} / Lista {1}", item.Clave, item.Lista))
                             End If
-                        End Using
 
-                    Catch exItem As Exception
-                        res.Errores.Add(String.Format("Error en {0}: {1}", item.Clave, exItem.Message))
-                    End Try
-                Next
+                        Catch exItem As Exception
+                            res.Errores.Add(String.Format("Error en {0}: {1}", item.Clave, exItem.Message))
+                        End Try
+                    Next
+
+                    trans.Commit()
+                End Using
             End Using
         Catch ex As Exception
             Throw New Exception("Error al guardar: " & ex.Message)
