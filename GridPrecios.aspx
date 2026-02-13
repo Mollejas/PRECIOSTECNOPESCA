@@ -146,18 +146,12 @@
             box-shadow: inset 0 0 0 1px rgba(56,189,248,0.2);
         }
         td input.precio { text-align: right; }
-        td input.readonly { color: var(--text3); }
         td .row-num {
             padding: 9px 10px;
             color: var(--text3);
             font-size: 0.72rem;
             font-family: 'JetBrains Mono', monospace;
             text-align: center;
-        }
-        td .status-cell {
-            padding: 9px 10px;
-            text-align: center;
-            font-size: 0.72rem;
         }
         td button.btn-x {
             background: none; border: none;
@@ -234,7 +228,6 @@
     <div class="toolbar">
         <button type="button" class="btn" onclick="addRow()">＋ Fila</button>
         <button type="button" class="btn" onclick="addRows(10)">＋ 10 Filas</button>
-        <button type="button" class="btn" onclick="buscarPreciosBatch()">🔍 Buscar precios</button>
         <button type="button" class="btn btn-primary" onclick="cargarDBF()">📂 Cargar de DBF</button>
         <button type="button" class="btn-success btn" onclick="guardarCambios()">💾 Guardar en DBF</button>
         <button type="button" class="btn btn-danger" onclick="limpiarGrid()">🗑 Limpiar</button>
@@ -246,11 +239,9 @@
                 <thead>
                     <tr>
                         <th style="width:35px">#</th>
-                        <th style="width:22%">APRCLAVE</th>
-                        <th style="width:10%">APRLISTA</th>
-                        <th style="width:18%">Precio Actual</th>
-                        <th style="width:18%">Precio Nuevo</th>
-                        <th style="width:20%">Estado</th>
+                        <th style="width:35%">APRCLAVE</th>
+                        <th style="width:15%">APRLISTA</th>
+                        <th style="width:25%">Precio</th>
                         <th style="width:35px"></th>
                     </tr>
                 </thead>
@@ -259,7 +250,7 @@
         </div>
         <div class="footer-bar">
             <div class="stat">Filas: <b id="sRows">0</b></div>
-            <div class="stat">Modificadas: <b id="sMod">0</b></div>
+            <div class="stat">Con datos: <b id="sMod">0</b></div>
             <div class="stat">Errores: <b id="sErr">0</b></div>
         </div>
     </div>
@@ -267,10 +258,9 @@
     <div class="hint-box">
         <h3>💡 Instrucciones</h3>
         <p>
-            1. En Excel, copia 3 columnas: <strong>Código, Lista, Precio Nuevo</strong>.<br>
+            1. En Excel, copia 3 columnas: <strong>Código, Lista, Precio</strong>.<br>
             2. Click en la primera celda de APRCLAVE y pega con <kbd>Ctrl+V</kbd>.<br>
-            3. El sistema consulta automáticamente el precio actual en la DBF.<br>
-            4. Click en <strong>💾 Guardar en DBF</strong> para actualizar.<br>
+            3. Click en <strong>💾 Guardar en DBF</strong> para actualizar los precios en la base de datos.<br>
             <br>
             O usa <strong>📂 Cargar de DBF</strong> para ver todos los registros y editar precios directo.
         </p>
@@ -282,141 +272,27 @@
 
     <script>
         let rowN = 0;
-        let batchQueue = [];
-        let batchTimer = null;
-        const BATCH_SIZE = 50;
-        const BATCH_DELAY = 80;
 
         function esc(s) {
             return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
-        function markFetching(tr) {
-            tr.classList.remove('not-found', 'updated');
-            tr.classList.add('fetching');
-            tr.querySelector('.status-cell').innerHTML = '⏳ Buscando...';
-            tr.querySelector('.c-pactual').value = '';
-        }
-
-        function markResult(tr, data) {
-            tr.classList.remove('fetching');
-            if (data.Encontrado) {
-                tr.querySelector('.c-pactual').value = data.Precio;
-                const nuevo = tr.querySelector('.c-pnuevo').value;
-                if (nuevo && nuevo !== data.Precio) {
-                    tr.className = 'modified';
-                    tr.querySelector('.status-cell').innerHTML = '✏️ Modificado';
-                    highlightRow(tr, 'modified');
-                } else {
-                    tr.className = 'found';
-                    tr.querySelector('.status-cell').innerHTML = '✅ Encontrado';
-                    highlightRow(tr, 'found');
-                }
-            } else {
-                tr.className = 'not-found';
-                tr.querySelector('.status-cell').innerHTML = '❌ No encontrado';
-                highlightRow(tr, 'not-found');
-            }
-            updateStats();
-        }
-
-        function highlightRow(tr, type) {
-            tr.classList.add('pulse');
-            setTimeout(() => tr.classList.remove('pulse'), 600);
-            if (type !== 'not-found') {
-                tr.scrollIntoView({ block: 'center', behavior: 'smooth' });
-            }
-        }
-
-        function queueBuscarPrecio(tr) {
-            var clave = tr.querySelector('.c-clave').value.trim();
-            var lista = tr.querySelector('.c-lista').value.trim();
-            if (!clave || !lista) return;
-
-            markFetching(tr);
-            batchQueue.push({ clave: clave, lista: lista, tr: tr });
-            scheduleBatch();
-        }
-
-        function scheduleBatch() {
-            if (batchTimer) clearTimeout(batchTimer);
-            batchTimer = setTimeout(function () {
-                batchTimer = null;
-                runBatch();
-            }, BATCH_DELAY);
-        }
-
-        function runBatch() {
-            if (batchQueue.length === 0) return;
-            var chunk = batchQueue.splice(0, BATCH_SIZE);
-            var payload = chunk.map(function (item) { return { Clave: item.clave, Lista: item.lista }; });
-
-            PageMethods.BuscarPrecios(payload, function (results) {
-                chunk.forEach(function (item) {
-                    var res = results.find(function (r) {
-                        return r.Clave.trim() === item.clave.trim() && r.Lista.trim() === item.lista.trim();
-                    });
-                    if (res) {
-                        markResult(item.tr, res);
-                    } else {
-                        item.tr.className = 'not-found';
-                        item.tr.querySelector('.status-cell').innerHTML = '⚠️ Sin respuesta';
-                    }
-                });
-                if (batchQueue.length > 0) runBatch();
-            }, function (err) {
-                chunk.forEach(function (item) {
-                    item.tr.className = 'not-found';
-                    item.tr.querySelector('.status-cell').innerHTML = '⚠️ Error';
-                });
-                toast('Error: ' + err.get_message(), 'error');
-                if (batchQueue.length > 0) runBatch();
-            });
-        }
-
-        function buscarPreciosBatch() {
-            var rows = Array.from(document.querySelectorAll('#gridBody tr'));
-            if (rows.length === 0) return;
-
-            batchQueue = [];
-            rows.forEach(function (tr) { queueBuscarPrecio(tr); });
-            toast('Procesando ' + rows.length + ' filas...', 'info');
-        }
-
         // ========================
         // FILAS
         // ========================
-        function createRow(clave, lista, pActual, pNuevo, estado) {
-            clave = clave || ''; lista = lista || ''; pActual = pActual || ''; pNuevo = pNuevo || ''; estado = estado || '';
+        function createRow(clave, lista, precio) {
+            clave = clave || ''; lista = lista || ''; precio = precio || '';
             rowN++;
             const tr = document.createElement('tr');
             tr.innerHTML =
                 '<td><div class="row-num">' + rowN + '</div></td>' +
                 '<td><input type="text" class="c-clave" value="' + esc(clave) + '" placeholder="Código"></td>' +
                 '<td><input type="text" class="c-lista" value="' + esc(lista) + '" placeholder="001"></td>' +
-                '<td><input type="text" class="c-pactual precio readonly" value="' + esc(pActual) + '" readonly placeholder="-"></td>' +
-                '<td><input type="text" class="c-pnuevo precio" value="' + esc(pNuevo) + '" placeholder="Nuevo precio"></td>' +
-                '<td><div class="status-cell">' + estado + '</div></td>' +
+                '<td><input type="text" class="c-precio precio" value="' + esc(precio) + '" placeholder="Precio"></td>' +
                 '<td><button type="button" class="btn-x" onclick="delRow(this)" title="Eliminar">✕</button></td>';
 
             tr.querySelectorAll('input').forEach(function (inp) {
                 inp.addEventListener('paste', handlePaste);
-            });
-
-            tr.querySelector('.c-clave').addEventListener('blur', function () { queueBuscarPrecio(tr); });
-            tr.querySelector('.c-lista').addEventListener('blur', function () { queueBuscarPrecio(tr); });
-
-            tr.querySelector('.c-pnuevo').addEventListener('input', function () {
-                var actual = tr.querySelector('.c-pactual').value;
-                var nuevo = this.value;
-                if (nuevo && actual && nuevo !== actual) {
-                    tr.className = 'modified';
-                    tr.querySelector('.status-cell').innerHTML = '✏️ Modificado';
-                } else if (actual) {
-                    tr.className = 'found';
-                    tr.querySelector('.status-cell').innerHTML = '✅ Encontrado';
-                }
-                updateStats();
             });
 
             document.getElementById('gridBody').appendChild(tr);
@@ -450,8 +326,16 @@
         }
 
         function updateStats() {
-            document.getElementById('sRows').textContent = document.querySelectorAll('#gridBody tr').length;
-            document.getElementById('sMod').textContent = document.querySelectorAll('#gridBody tr.modified').length;
+            var allRows = document.querySelectorAll('#gridBody tr');
+            var conDatos = 0;
+            allRows.forEach(function (tr) {
+                var clave = tr.querySelector('.c-clave').value.trim();
+                var lista = tr.querySelector('.c-lista').value.trim();
+                var precio = tr.querySelector('.c-precio').value.trim();
+                if (clave && lista && precio) conDatos++;
+            });
+            document.getElementById('sRows').textContent = allRows.length;
+            document.getElementById('sMod').textContent = conDatos;
             document.getElementById('sErr').textContent = document.querySelectorAll('#gridBody tr.not-found').length;
         }
 
@@ -463,7 +347,7 @@
             var lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n').filter(function (l) { return l.trim(); });
             var isMulti = lines.some(function (l) { return l.indexOf('\t') >= 0; });
 
-            var colMap = ['c-clave', 'c-lista', 'c-pnuevo'];
+            var colMap = ['c-clave', 'c-lista', 'c-precio'];
             var inp = e.target;
             var curRow = inp.closest('tr');
             var colClass = colMap.filter(function (c) { return inp.classList.contains(c); })[0] || colMap[0];
@@ -471,7 +355,6 @@
 
             var allRows = Array.from(document.querySelectorAll('#gridBody tr'));
             var startIdx = allRows.indexOf(curRow);
-            var rowsToFetch = [];
 
             lines.forEach(function (line, i) {
                 var cells = line.split('\t');
@@ -495,34 +378,10 @@
                     var el = row.querySelector('.' + colClass);
                     if (el) el.value = line.trim();
                 }
-
-                var clave = row.querySelector('.c-clave').value.trim();
-                var lista = row.querySelector('.c-lista').value.trim();
-                if (clave && lista) {
-                    rowsToFetch.push(row);
-                }
             });
 
             toast(lines.length + ' filas pegadas', 'info');
-
-            if (rowsToFetch.length > 0) {
-                batchQueue = [];
-                rowsToFetch.forEach(function (row) {
-                    var clave = row.querySelector('.c-clave').value.trim();
-                    var lista = row.querySelector('.c-lista').value.trim();
-                    markFetching(row);
-                    batchQueue.push({ clave: clave, lista: lista, tr: row });
-                });
-                if (batchTimer) clearTimeout(batchTimer);
-                batchTimer = null;
-                runBatch();
-            }
-
             updateStats();
-        }
-
-        function buscarPrecio(tr) {
-            queueBuscarPrecio(tr);
         }
 
         function cargarDBF() {
@@ -533,11 +392,10 @@
                 document.getElementById('gridBody').innerHTML = '';
                 rowN = 0;
                 data.forEach(function (item) {
-                    createRow(item.Clave, item.Lista, item.Precio, '', '✅ DBF');
+                    createRow(item.Clave, item.Lista, item.Precio);
                 });
                 document.getElementById('gridWrap').classList.remove('loading');
                 toast(data.length + ' registros cargados', 'success');
-                buscarPreciosBatch();
             }, function (err) {
                 document.getElementById('gridWrap').classList.remove('loading');
                 toast('Error: ' + err.get_message(), 'error');
@@ -545,22 +403,26 @@
         }
 
         function guardarCambios() {
-            var rows = document.querySelectorAll('#gridBody tr.modified');
-            if (rows.length === 0) {
-                toast('No hay cambios para guardar', 'warning');
+            var allRows = Array.from(document.querySelectorAll('#gridBody tr'));
+            var items = [];
+            var filasValidas = [];
+
+            allRows.forEach(function (tr) {
+                var clave = tr.querySelector('.c-clave').value.trim();
+                var lista = tr.querySelector('.c-lista').value.trim();
+                var precio = tr.querySelector('.c-precio').value.trim();
+                if (clave && lista && precio) {
+                    items.push({ Clave: clave, Lista: lista, Precio: precio });
+                    filasValidas.push(tr);
+                }
+            });
+
+            if (items.length === 0) {
+                toast('No hay filas con datos completos para guardar', 'warning');
                 return;
             }
 
-            if (!confirm('¿Actualizar ' + rows.length + ' registro(s) en la DBF?')) return;
-
-            var items = [];
-            rows.forEach(function (tr) {
-                items.push({
-                    Clave: tr.querySelector('.c-clave').value.trim(),
-                    Lista: tr.querySelector('.c-lista').value.trim(),
-                    Precio: tr.querySelector('.c-pnuevo').value.trim()
-                });
-            });
+            if (!confirm('¿Actualizar ' + items.length + ' registro(s) en la DBF?')) return;
 
             document.getElementById('gridWrap').classList.add('loading');
 
@@ -573,11 +435,8 @@
 
                 toast('✅ ' + result.Actualizados + ' de ' + result.Total + ' actualizados', 'success');
 
-                rows.forEach(function (tr) {
-                    var nuevo = tr.querySelector('.c-pnuevo').value;
-                    tr.querySelector('.c-pactual').value = nuevo;
+                filasValidas.forEach(function (tr) {
                     tr.className = 'updated';
-                    tr.querySelector('.status-cell').innerHTML = '✅ Actualizado';
                 });
 
                 if (result.Errores && result.Errores.length > 0) {
