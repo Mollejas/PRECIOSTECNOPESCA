@@ -216,19 +216,7 @@ Public Class GridPrecios
     End Function
 
     ' ===========================
-    ' Sanitizar texto para incrustar en script FoxPro
-    ' ===========================
-    Private Shared Function FoxSafe(s As String) As String
-        Return s.Trim() _
-               .Replace("'", "''") _
-               .Replace(vbCr, "") _
-               .Replace(vbLf, "") _
-               .Replace(vbTab, "")
-    End Function
-
-    ' ===========================
-    ' GUARDAR PRECIOS (masivo vía EXECSCRIPT)
-    ' Envía un solo script FoxPro con todos los UPDATEs
+    ' GUARDAR PRECIOS (UPDATE directo por registro)
     ' ===========================
     <WebMethod>
     Public Shared Function GuardarPrecios(items As List(Of ItemGuardar)) As ResultGuardar
@@ -238,60 +226,38 @@ Public Class GridPrecios
             .Errores = New List(Of String)
         }
 
-        ' Validar precios y construir lista limpia
-        Dim validos As New List(Of Tuple(Of String, String, Decimal))
-        For Each item In items
-            Dim precio As Decimal = 0
-            If Not Decimal.TryParse(item.Precio, precio) Then
-                res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
-                Continue For
-            End If
-            validos.Add(Tuple.Create(item.Clave, item.Lista, precio))
-        Next
-
-        If validos.Count = 0 Then
-            Return res
-        End If
-
         Try
             Using conn As New OleDbConnection(ConnStr())
                 conn.Open()
 
-                ' Procesar en lotes de 50 para no exceder límites de EXECSCRIPT
-                Dim batchSize As Integer = 50
-                For b As Integer = 0 To validos.Count - 1 Step batchSize
-                    Dim chunk = validos.GetRange(b, Math.Min(batchSize, validos.Count - b))
+                Dim sql As String = String.Format(
+                    "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
+                    DBF_TABLE)
 
-                    Dim script As New System.Text.StringBuilder()
-                    script.AppendLine("SET DEFAULT TO '" & DBF_FOLDER.Replace("'", "''") & "'")
-                    script.AppendLine("LOCAL lnOk")
-                    script.AppendLine("lnOk = 0")
+                Using cmd As New OleDbCommand(sql, conn)
+                    cmd.Parameters.Add("@p1", OleDbType.Numeric)
+                    cmd.Parameters.Add("@p2", OleDbType.VarChar, 25)
+                    cmd.Parameters.Add("@p3", OleDbType.VarChar, 3)
 
-                    For Each t In chunk
-                        Dim safeClave = FoxSafe(t.Item1)
-                        Dim safeLista = FoxSafe(t.Item2)
-                        Dim priceStr = t.Item3.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
+                    For Each item In items
+                        Dim precio As Decimal = 0
+                        If Not Decimal.TryParse(item.Precio, precio) Then
+                            res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
+                            Continue For
+                        End If
 
-                        script.AppendLine(String.Format(
-                            "UPDATE {0} SET APRPRC = {1} WHERE ALLTRIM(APRCLAVE) = '{2}' AND ALLTRIM(APRLISTA) = '{3}'",
-                            DBF_TABLE, priceStr, safeClave, safeLista))
-                        script.AppendLine("lnOk = lnOk + _TALLY")
+                        cmd.Parameters(0).Value = precio
+                        cmd.Parameters(1).Value = item.Clave.Trim().PadRight(25)
+                        cmd.Parameters(2).Value = item.Lista.Trim().PadRight(3)
+
+                        Dim affected = cmd.ExecuteNonQuery()
+                        If affected > 0 Then
+                            res.Actualizados += 1
+                        Else
+                            res.Errores.Add(String.Format("No encontrado: {0} / Lista {1}", item.Clave, item.Lista))
+                        End If
                     Next
-
-                    script.AppendLine("RETURN lnOk")
-
-                    Using cmd As New OleDbCommand("EXECSCRIPT(?)", conn)
-                        cmd.Parameters.AddWithValue("@s", script.ToString())
-                        Dim resultado = cmd.ExecuteScalar()
-                        res.Actualizados += Convert.ToInt32(resultado)
-                    End Using
-                Next
-
-                Dim noEncontrados = validos.Count - res.Actualizados
-                If noEncontrados > 0 Then
-                    res.Errores.Add(String.Format("{0} registro(s) no encontrados en la DBF", noEncontrados))
-                End If
-
+                End Using
             End Using
         Catch ex As Exception
             Throw New Exception("Error al guardar: " & ex.Message)
