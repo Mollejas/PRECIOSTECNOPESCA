@@ -388,7 +388,8 @@
             document.getElementById('gridWrap').classList.add('loading');
             toast('Cargando datos...', 'info');
 
-            PageMethods.CargarTodos(function (data) {
+            PageMethods.CargarTodos(function (raw) {
+                var data = raw.d || raw || [];
                 document.getElementById('gridBody').innerHTML = '';
                 rowN = 0;
                 data.forEach(function (item) {
@@ -426,17 +427,19 @@
 
             document.getElementById('gridWrap').classList.add('loading');
 
-            PageMethods.GuardarPrecios(items, function (result) {
+            PageMethods.GuardarPrecios(items, function (raw) {
+                var result = raw.d || raw || {};
                 document.getElementById('gridWrap').classList.remove('loading');
 
-                toast('✅ ' + result.Actualizados + ' de ' + result.Total + ' actualizados', 'success');
+                toast((result.Actualizados || 0) + ' de ' + (result.Total || 0) + ' actualizados', 'success');
 
                 filasValidas.forEach(function (tr) {
                     tr.className = 'updated';
                 });
 
-                if (result.Errores && result.Errores.length > 0) {
-                    result.Errores.forEach(function (e) {
+                var errores = result.Errores || [];
+                if (errores.length > 0) {
+                    errores.forEach(function (e) {
                         toast(e, 'error');
                     });
                 }
