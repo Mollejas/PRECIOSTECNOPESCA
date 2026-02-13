@@ -263,6 +263,7 @@ Public Class GridPrecios
                     Dim chunk = validos.GetRange(b, Math.Min(batchSize, validos.Count - b))
 
                     Dim script As New System.Text.StringBuilder()
+                    script.AppendLine("SET DEFAULT TO '" & DBF_FOLDER.Replace("'", "''") & "'")
                     script.AppendLine("LOCAL lnOk")
                     script.AppendLine("lnOk = 0")
 
