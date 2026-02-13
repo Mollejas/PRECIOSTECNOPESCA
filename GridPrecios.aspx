@@ -429,10 +429,6 @@
             PageMethods.GuardarPrecios(items, function (result) {
                 document.getElementById('gridWrap').classList.remove('loading');
 
-                if (result.Respaldo) {
-                    toast('📦 Respaldo: ' + result.Respaldo, 'info');
-                }
-
                 toast('✅ ' + result.Actualizados + ' de ' + result.Total + ' actualizados', 'success');
 
                 filasValidas.forEach(function (tr) {
