@@ -1,4 +1,4 @@
-<%@ Page Language="vb" AutoEventWireup="false" CodeBehind="GridPrecios.aspx.vb" Inherits="PRECIOSTECNO.GridPrecios" %>
+﻿<%@ Page Language="vb" AutoEventWireup="false" CodeBehind="GridPrecios.aspx.vb" Inherits="PRECIOSTECNO.GridPrecios" %>
 
 <!DOCTYPE html>
 <html lang="es">
