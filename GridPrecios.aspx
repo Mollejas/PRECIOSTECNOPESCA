@@ -428,10 +428,17 @@
             document.getElementById('gridWrap').classList.add('loading');
 
             PageMethods.GuardarPrecios(items, function (raw) {
-                var result = raw.d || raw || {};
+                var result = raw || {};
                 document.getElementById('gridWrap').classList.remove('loading');
 
-                toast((result.Actualizados || 0) + ' de ' + (result.Total || 0) + ' actualizados', 'success');
+                var act = result.Actualizados || 0;
+                var tot = result.Total || 0;
+
+                if (act > 0) {
+                    toast(act + ' de ' + tot + ' actualizados correctamente', 'success');
+                } else {
+                    toast('0 actualizados de ' + tot + ' enviados. Revisa errores abajo.', 'warning');
+                }
 
                 filasValidas.forEach(function (tr) {
                     tr.className = 'updated';
@@ -446,7 +453,7 @@
                 updateStats();
             }, function (err) {
                 document.getElementById('gridWrap').classList.remove('loading');
-                toast('Error: ' + err.get_message(), 'error');
+                toast('Error servidor: ' + err.get_message(), 'error');
             });
         }
 
