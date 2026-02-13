@@ -281,7 +281,10 @@ Public Class GridPrecios
                     DBF_TABLE)
 
                 Using cmd As New OleDbCommand(sql, conn, trans)
-                    cmd.Parameters.Add("@p1", OleDbType.Decimal)
+                    Dim pPrecio As New OleDbParameter("@p1", OleDbType.Decimal)
+                    pPrecio.Precision = 12
+                    pPrecio.Scale = 2
+                    cmd.Parameters.Add(pPrecio)
                     cmd.Parameters.Add("@p2", OleDbType.VarChar, 25)
                     cmd.Parameters.Add("@p3", OleDbType.VarChar, 3)
                     cmd.Prepare()
