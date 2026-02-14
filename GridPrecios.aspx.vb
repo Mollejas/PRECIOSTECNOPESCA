@@ -216,19 +216,40 @@ Public Class GridPrecios
     End Function
 
     ' ===========================
-    ' GUARDAR PRECIOS (UPDATE directo por registro)
-    ' Usa AddWithValue igual que BuscarPrecio (que sí funciona)
+    ' Sanitizar texto para incrustar en script FoxPro
+    ' ===========================
+    Private Shared Function FoxSafe(s As String) As String
+        Return s.Trim() _
+               .Replace("'", "''") _
+               .Replace(vbCr, "") _
+               .Replace(vbLf, "") _
+               .Replace(vbTab, "")
+    End Function
+
+    ' ===========================
+    ' GUARDAR PRECIOS (masivo vía EXECSCRIPT)
+    ' Envía un solo script FoxPro con todos los UPDATEs
     ' ===========================
     <WebMethod>
     Public Shared Function GuardarPrecios(items As List(Of ItemGuardar)) As ResultGuardar
         Dim res As New ResultGuardar() With {
             .Actualizados = 0,
-            .Total = If(items IsNot Nothing, items.Count, 0),
+            .Total = items.Count,
             .Errores = New List(Of String)
         }
 
-        If items Is Nothing OrElse items.Count = 0 Then
-            res.Errores.Add("No se recibieron items del navegador")
+        ' Validar precios y construir lista limpia
+        Dim validos As New List(Of Tuple(Of String, String, Decimal))
+        For Each item In items
+            Dim precio As Decimal = 0
+            If Not Decimal.TryParse(item.Precio, precio) Then
+                res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
+                Continue For
+            End If
+            validos.Add(Tuple.Create(item.Clave, item.Lista, precio))
+        Next
+
+        If validos.Count = 0 Then
             Return res
         End If
 
@@ -236,36 +257,43 @@ Public Class GridPrecios
             Using conn As New OleDbConnection(ConnStr())
                 conn.Open()
 
-                For Each item In items
-                    Dim precio As Decimal = 0
-                    If Not Decimal.TryParse(item.Precio,
-                            System.Globalization.NumberStyles.Any,
-                            System.Globalization.CultureInfo.InvariantCulture,
-                            precio) Then
-                        res.Errores.Add(String.Format("{0}: precio inválido '{1}'", item.Clave, item.Precio))
-                        Continue For
-                    End If
+                ' Procesar en lotes de 50 para no exceder límites de EXECSCRIPT
+                Dim batchSize As Integer = 50
+                For b As Integer = 0 To validos.Count - 1 Step batchSize
+                    Dim chunk = validos.GetRange(b, Math.Min(batchSize, validos.Count - b))
 
-                    Dim sql As String = String.Format(
-                        "UPDATE {0} SET APRPRC = ? WHERE APRCLAVE = ? AND APRLISTA = ?",
-                        DBF_TABLE)
+                    Dim script As New System.Text.StringBuilder()
+                    script.AppendLine("LOCAL lnOk")
+                    script.AppendLine("lnOk = 0")
 
-                    Using cmd As New OleDbCommand(sql, conn)
-                        cmd.Parameters.AddWithValue("@precio", CDbl(precio))
-                        cmd.Parameters.AddWithValue("@clave", item.Clave.Trim().PadRight(25))
-                        cmd.Parameters.AddWithValue("@lista", item.Lista.Trim().PadRight(3))
+                    For Each t In chunk
+                        Dim safeClave = FoxSafe(t.Item1)
+                        Dim safeLista = FoxSafe(t.Item2)
+                        Dim priceStr = t.Item3.ToString("F2", System.Globalization.CultureInfo.InvariantCulture)
 
-                        Dim affected As Integer = cmd.ExecuteNonQuery()
-                        If affected > 0 Then
-                            res.Actualizados += 1
-                        Else
-                            res.Errores.Add(String.Format("No encontrado: [{0}] Lista [{1}]", item.Clave.Trim(), item.Lista.Trim()))
-                        End If
+                        script.AppendLine(String.Format(
+                            "UPDATE {0} SET APRPRC = {1} WHERE ALLTRIM(APRCLAVE) = '{2}' AND ALLTRIM(APRLISTA) = '{3}'",
+                            DBF_TABLE, priceStr, safeClave, safeLista))
+                        script.AppendLine("lnOk = lnOk + _TALLY")
+                    Next
+
+                    script.AppendLine("RETURN lnOk")
+
+                    Using cmd As New OleDbCommand("EXECSCRIPT(?)", conn)
+                        cmd.Parameters.AddWithValue("@s", script.ToString())
+                        Dim resultado = cmd.ExecuteScalar()
+                        res.Actualizados += Convert.ToInt32(resultado)
                     End Using
                 Next
+
+                Dim noEncontrados = validos.Count - res.Actualizados
+                If noEncontrados > 0 Then
+                    res.Errores.Add(String.Format("{0} registro(s) no encontrados en la DBF", noEncontrados))
+                End If
+
             End Using
         Catch ex As Exception
-            Throw New Exception("Error al guardar: " & ex.Message & " | StackTrace: " & ex.StackTrace)
+            Throw New Exception("Error al guardar: " & ex.Message)
         End Try
 
         Return res

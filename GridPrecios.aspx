@@ -1,4 +1,4 @@
-<%@ Page Language="vb" AutoEventWireup="false" CodeBehind="GridPrecios.aspx.vb" Inherits="PRECIOSTECNO.GridPrecios" %>
+﻿<%@ Page Language="vb" AutoEventWireup="false" CodeBehind="GridPrecios.aspx.vb" Inherits="PRECIOSTECNO.GridPrecios" %>
 
 <!DOCTYPE html>
 <html lang="es">
@@ -388,8 +388,7 @@
             document.getElementById('gridWrap').classList.add('loading');
             toast('Cargando datos...', 'info');
 
-            PageMethods.CargarTodos(function (raw) {
-                var data = raw.d || raw || [];
+            PageMethods.CargarTodos(function (data) {
                 document.getElementById('gridBody').innerHTML = '';
                 rowN = 0;
                 data.forEach(function (item) {
@@ -427,33 +426,24 @@
 
             document.getElementById('gridWrap').classList.add('loading');
 
-            PageMethods.GuardarPrecios(items, function (raw) {
-                var result = raw || {};
+            PageMethods.GuardarPrecios(items, function (result) {
                 document.getElementById('gridWrap').classList.remove('loading');
 
-                var act = result.Actualizados || 0;
-                var tot = result.Total || 0;
-
-                if (act > 0) {
-                    toast(act + ' de ' + tot + ' actualizados correctamente', 'success');
-                } else {
-                    toast('0 actualizados de ' + tot + ' enviados. Revisa errores abajo.', 'warning');
-                }
+                toast('✅ ' + result.Actualizados + ' de ' + result.Total + ' actualizados', 'success');
 
                 filasValidas.forEach(function (tr) {
                     tr.className = 'updated';
                 });
 
-                var errores = result.Errores || [];
-                if (errores.length > 0) {
-                    errores.forEach(function (e) {
+                if (result.Errores && result.Errores.length > 0) {
+                    result.Errores.forEach(function (e) {
                         toast(e, 'error');
                     });
                 }
                 updateStats();
             }, function (err) {
                 document.getElementById('gridWrap').classList.remove('loading');
-                toast('Error servidor: ' + err.get_message(), 'error');
+                toast('Error: ' + err.get_message(), 'error');
             });
         }
 
